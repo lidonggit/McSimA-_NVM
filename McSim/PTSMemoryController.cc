@@ -32,6 +32,10 @@
 #include "PTSXbar.h"
 #include "PTSDirectory.h"
 #include <iomanip>
+#ifdef DRAMSIM
+#include <algorithm>
+#include <assert.h>
+#endif
 
 using namespace PinPthread;
 
@@ -70,14 +74,26 @@ MemoryController::MemoryController(
   req_l(),
   mc_to_dir_t  (get_param_uint64("to_dir_t", 1000)),
   num_ranks_per_mc (get_param_uint64("num_ranks_per_mc", 1)),
+  #ifdef NVM_EXT
+  num_nvm_ranks_per_mc (get_param_uint64("num_nvm_ranks_per_mc", 0)),
+  #endif
   num_banks_per_rank(get_param_uint64("num_banks_per_rank", 8)),
   tRCD         (get_param_uint64("tRCD", 10)),
+  #ifdef NVM_EXT
+  tRCD_nvm     (get_param_uint64("tRCD_nvm", 44)),
+  #endif
   tRR          (get_param_uint64("tRR",  5)),
   tRP          (get_param_uint64("tRP",  tRP)),
+  #ifdef NVM_EXT
+  tRP_nvm          (get_param_uint64("tRP_nvm",  tRP)),
+  #endif
   tCL          (get_param_uint64("tCL",  10)),
   tBL          (get_param_uint64("tBL",  10)),
   tBBL         (get_param_uint64("tBBL", tBL)),
   tRAS         (get_param_uint64("tRAS", 15)),
+  #ifdef NVM_EXT
+  tRAS         (get_param_uint64("tRAS_nvm", 15)),
+  #endif
   tWRBUB       (get_param_uint64("tWRBUB", 2)),
   tRWBUB       (get_param_uint64("tRWBUB", 2)),
   tRRBUB       (get_param_uint64("tRRBUB", 2)),
@@ -109,6 +125,8 @@ MemoryController::MemoryController(
   wr_dp_status()
 {
   process_interval = get_param_uint64("process_interval", 10);
+  /*Dong: the following code related to refresh_interval is from the original McSimA+ code, but I doubt 
+    it is correct, because the refresh operation is not implemented by McSimA+*/
   refresh_interval = get_param_uint64("refresh_interval",  0);
   if (refresh_interval != 0)
   {
@@ -173,6 +191,28 @@ MemoryController::MemoryController(
 
   last_process_time     = 0;
   packet_time_in_mc_acc = 0;
+
+  #ifdef REF_EXT
+  //initialization for refreshing op
+  refreshCountdown.reserve(num_ranks_per_mc);
+  refreshRank = 0;
+  #endif
+
+  #ifdef NVM_EXT
+  //initialize bank status based on the NVM configuration
+   BankStatus & temp_bank;
+   for(int i=0; i<num_ranks_per_mc; i++)
+     for(int j=0; j<num_banks_per_rank; j++)
+     {
+       temp_bank = bank_status[i][j];
+       if( i < num_nvm_ranks_per_mc)
+       {
+	 temp_bank.nvm_flag = true;
+	 temp_bank.dirty_flag = false;
+       }
+     }
+  #endif
+
 }
 
 
@@ -183,17 +223,17 @@ MemoryController::~MemoryController()
     update_acc_dist();
 
     cout << "  -- MC  [" << setw(3) << num << "] : (rd, wr, act, pre) = ("
-         << setw(9) << num_read << ", " << setw(9) << num_write << ", "
-         << setw(9) << num_activate << ", " << setw(9) << num_precharge
-         << "), # of WR->RD switch = " << num_write_to_read_switch
-         << ", #_refresh = " << num_refresh << ", "
-         << os_page_acc_dist.size() << " pages acc, AB (rd, wr, act) = ("
-         << setw(9) << num_ab_read << ", " << setw(9) << num_ab_write << ", "
-         << setw(9) << num_ab_activate << "), "
-         << "avg_tick_in_mc= " << packet_time_in_mc_acc / (num_read + num_write) << endl;
+      << setw(9) << num_read << ", " << setw(9) << num_write << ", "
+      << setw(9) << num_activate << ", " << setw(9) << num_precharge
+      << "), # of WR->RD switch = " << num_write_to_read_switch
+      << ", #_refresh = " << num_refresh << ", "
+      << os_page_acc_dist.size() << " pages acc, AB (rd, wr, act) = ("
+      << setw(9) << num_ab_read << ", " << setw(9) << num_ab_write << ", "
+      << setw(9) << num_ab_activate << "), "
+      << "avg_tick_in_mc= " << packet_time_in_mc_acc / (num_read + num_write) << endl;
     cout << "               : "
-         << "local pred (miss,hit)=( " << num_pred_miss << ", " << num_pred_hit << "), "
-         << "global pred (miss,hit)=( " << num_global_pred_miss << ", " << num_global_pred_hit << ")" << endl;
+      << "local pred (miss,hit)=( " << num_pred_miss << ", " << num_pred_hit << "), "
+      << "global pred (miss,hit)=( " << num_global_pred_miss << ", " << num_global_pred_hit << ")" << endl;
   }
 
   if (display_os_page_usage == true)
@@ -201,9 +241,9 @@ MemoryController::~MemoryController()
     for(map<uint64_t, uint64_t>::iterator iter = os_page_acc_dist.begin(); iter != os_page_acc_dist.end(); ++iter)
     {
       cout << "  -- page 0x" << setfill('0') << setw(8) << hex << iter->first * (1 << page_sz_base_bit)
-           << setfill(' ') << dec << " is accessed (" 
-           << setw(7) << mcsim->os_page_req_dist[iter->first]
-           << ", " << setw(7) << iter->second << ") times at (Core, MC)." <<  endl;
+	<< setfill(' ') << dec << " is accessed (" 
+	<< setw(7) << mcsim->os_page_req_dist[iter->first]
+	<< ", " << setw(7) << iter->second << ") times at (Core, MC)." <<  endl;
     }
   }
 }
@@ -313,9 +353,9 @@ void MemoryController::show_state(uint64_t curr_time)
     for(uint32_t k = 0; k < num_banks_per_rank; k++)
     {
       cout << "  -- bank_status[" << setw(2) <<  i << "][" << setw(2) << k << "] = ("
-        << setw(10) << bank_status[i][k].action_time << ", "
-        << hex << "0x" << bank_status[i][k].page_num << dec << ", "
-        << bank_status[i][k].action_type << ")" << endl;
+	<< setw(10) << bank_status[i][k].action_time << ", "
+	<< hex << "0x" << bank_status[i][k].page_num << dec << ", "
+	<< bank_status[i][k].action_type << ")" << endl;
     }
   }
 
@@ -354,13 +394,35 @@ void MemoryController::show_state(uint64_t curr_time)
   }
 }
 
-
 uint32_t MemoryController::process_event(uint64_t curr_time)
 {
   if (last_process_time > 0)
   {
     packet_time_in_mc_acc += (curr_time - last_process_time) * req_l.size();
   }
+
+  #ifdef REF_EXT
+   //decrement refresh counters
+   for (size_t i=0;i<num_ranks_per_mc;i++)
+   {
+     //refreshCountdown[i]--;
+     refreshCountdown[i] = refreshCountdown[i] - (curr_time - last_process_time); 
+   }
+
+   if(refreshCountdown[refreshRank]==0)
+   {
+     if(nvm)
+       refreshCountdown[refreshRank] = xxx;
+     else
+       refreshCountdown[refreshRank] = xxx;
+
+     refreshRank++;
+     if(refreshRank == num_ranks_per_mc)
+       refreshRank = 0;
+   }
+  #endif
+
+
   last_process_time = curr_time;
 
   pre_processing(curr_time);
@@ -398,196 +460,206 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
     uint32_t tRP_curr = 0;
 
     BankStatus & curr_bank = bank_status[rank_num][bank_num];
+    #ifdef NVM_EXT
+    tRCD_curr = (curr_bank.nvm_flag)? tRCD_nvm : tRCD_curr;    
+    //For tRP, we assume that the NVM bank without been written has the same tRP as DRAM
+    tRP_curr = (curr_bank.nvm_flag && curr_bank.dirty_flag)? tRP_nvm: tRP_curr;  //quantify array write latency
+    #endif
+
     map<uint64_t, mc_bank_action>::iterator miter, rd_miter, wr_miter;
 
-    if (curr_bank.action_time > curr_time)
+    if (curr_bank.action_time > curr_time)   /**Dong: this is important. We are not processing future events.**/
     {
       continue;
     }
     switch (curr_bank.action_type)
     {
       case mc_bank_precharge:
-        if (curr_bank.action_time + tRP_curr*process_interval > curr_time)
-        {
-          break;
-        }
+	if (curr_bank.action_time + tRP_curr*process_interval > curr_time)
+	{
+	  break;
+	}
+	#ifdef NVM_EXT
+	else
+	  curr_bank.dirty_flag = false;  //Dong: just finish precharging
+	#endif
       case mc_bank_idle:
-        if (page_hit == false &&  // page_hit has priority 2
-            last_activate_time[rank_num] + tRR*process_interval <= curr_time)
-        {
-          if (num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread ||
-              (num_req_from_a_th[(*iter)->th_id] == num_req_from_the_same_thread && c_idx == -1))
-          {
-            c_idx  = i;
-            c_iter = iter;
-            num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
-          }
-        }
-        break;
+	if (page_hit == false &&  // page_hit has priority 2
+	    last_activate_time[rank_num] + tRR*process_interval <= curr_time)
+	{
+	  if (num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread ||
+	      (num_req_from_a_th[(*iter)->th_id] == num_req_from_the_same_thread && c_idx == -1))
+	  {
+	    c_idx  = i;
+	    c_iter = iter;
+	    num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
+	  }
+	}
+	break;
       case mc_bank_activate:
-        if (curr_bank.action_time + tRCD_curr*process_interval > curr_time)
-        {
-          break;
-        }
+	if (curr_bank.action_time + tRCD_curr*process_interval > curr_time)
+	{
+	  break;
+	}
       case mc_bank_read:
       case mc_bank_write:
-        if (curr_bank.action_time + tBBL*process_interval > curr_time)
-        {
-          break;
-        }
-        if (curr_bank.page_num != page_num)
-        { // row miss
-          if (policy == mc_scheduling_open)
-          {
-            uint32_t k = 0;
-            bool need_precharge = true;
-            iter2 = req_l.begin();
+	if (curr_bank.action_time + tBBL*process_interval > curr_time)
+	{
+	  break;
+	}
+	if (curr_bank.page_num != page_num)
+	{ // row miss
+	  if (policy == mc_scheduling_open)
+	  {
+	    uint32_t k = 0;
+	    bool need_precharge = true;
+	    iter2 = req_l.begin();
 
-            while (iter2 != req_l.end() && k++ < req_window_sz)
-            {
-              if ((int32_t)i <= curr_batch_last && (int32_t)k > curr_batch_last + 1)
-              {
-                break;
-              }
-              if (iter == iter2) 
-              {
-                iter2++;
-                continue;
-              }
-              uint64_t address  = (*iter2)->address;
-              if (rank_num == get_rank_num(address) &&
-                  bank_num == get_bank_num(address) &&
-                  curr_bank.page_num == get_page_num(address))
-              {
-                need_precharge = false;
-                break;
-              }
-              iter2++;
-            }
+	    while (iter2 != req_l.end() && k++ < req_window_sz)
+	    {
+	      if ((int32_t)i <= curr_batch_last && (int32_t)k > curr_batch_last + 1)
+	      {
+		break;
+	      }
+	      if (iter == iter2) 
+	      {
+		iter2++;
+		continue;
+	      }
+	      uint64_t address  = (*iter2)->address;
+	      if (rank_num == get_rank_num(address) &&
+		  bank_num == get_bank_num(address) &&
+		  curr_bank.page_num == get_page_num(address))
+	      {
+		need_precharge = false;
+		break;
+	      }
+	      iter2++;
+	    }
 
-            if (need_precharge == true &&
-                page_hit == false &&  // page_hit has priority 2
-                last_activate_time[rank_num] + tRR*process_interval <= curr_time)
-            {
-              if (num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread ||
-                  (num_req_from_a_th[(*iter)->th_id] == num_req_from_the_same_thread && c_idx == -1))
-              {
-                c_idx  = i;
-                c_iter = iter;
-                num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
-              }
-            }
-          }
-        }
-        else
-        { // row hit
-          dp_status.erase(      dp_status.begin(),    dp_status.lower_bound(curr_time));
-          miter    =    dp_status.lower_bound(curr_time + tCL*process_interval);
-          bool met_constraints = false;
-          switch (type)
-          {
-            case et_rd_dir_info_req:
-            case et_rd_dir_info_rep:
-            case et_read:
-            case et_e_rd:
-            case et_s_rd:
-              // read
-              rd_dp_status.erase(rd_dp_status.begin(), rd_dp_status.lower_bound(curr_time));
-              rd_miter = rd_dp_status.lower_bound(curr_time + tCL*process_interval);
-              if ((full_duplex == false && 
-                    (miter == dp_status.end() || miter->first >= curr_time + (tCL+tBL)*process_interval)) ||
-                  (full_duplex == true &&
-                   (rd_miter == rd_dp_status.end() || rd_miter->first >= curr_time + (tCL+tBL)*process_interval)))
-              {
-                bool wrbub = false;
-                // WRBUB
-                miter = dp_status.lower_bound(curr_time + tCL*process_interval - tWRBUB*process_interval);
-                while (full_duplex == false &&
-                    miter != dp_status.end() &&
-                    miter->first < curr_time + tCL*process_interval)
-                {
-                  if (miter->second == mc_bank_write)
-                  {
-                    wrbub = true;
-                    break;
-                  }
-                  ++miter;
-                }
+	    if (need_precharge == true &&
+		page_hit == false &&  // page_hit has priority 2
+		last_activate_time[rank_num] + tRR*process_interval <= curr_time)
+	    {
+	      if (num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread ||
+		  (num_req_from_a_th[(*iter)->th_id] == num_req_from_the_same_thread && c_idx == -1))
+	      {
+		c_idx  = i;
+		c_iter = iter;
+		num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
+	      }
+	    }
+	  }
+	}
+	else
+	{ // row hit
+	  dp_status.erase(      dp_status.begin(),    dp_status.lower_bound(curr_time));
+	  miter    =    dp_status.lower_bound(curr_time + tCL*process_interval);
+	  bool met_constraints = false;
+	  switch (type)
+	  {
+	    case et_rd_dir_info_req:
+	    case et_rd_dir_info_rep:
+	    case et_read:
+	    case et_e_rd:
+	    case et_s_rd:
+	      // read
+	      rd_dp_status.erase(rd_dp_status.begin(), rd_dp_status.lower_bound(curr_time));
+	      rd_miter = rd_dp_status.lower_bound(curr_time + tCL*process_interval);
+	      if ((full_duplex == false && 
+		    (miter == dp_status.end() || miter->first >= curr_time + (tCL+tBL)*process_interval)) ||
+		  (full_duplex == true &&
+		   (rd_miter == rd_dp_status.end() || rd_miter->first >= curr_time + (tCL+tBL)*process_interval)))
+	      {
+		bool wrbub = false;
+		// WRBUB
+		miter = dp_status.lower_bound(curr_time + tCL*process_interval - tWRBUB*process_interval);
+		while (full_duplex == false &&
+		    miter != dp_status.end() &&
+		    miter->first < curr_time + tCL*process_interval)
+		{
+		  if (miter->second == mc_bank_write)
+		  {
+		    wrbub = true;
+		    break;
+		  }
+		  ++miter;
+		}
 
-                if (wrbub == false && tWTR > 0 && last_write_time[rank_num] + tWTR*process_interval > curr_time)
-                {  // tWTR constraint
-                  wrbub = true;
-                }
+		if (wrbub == false && tWTR > 0 && last_write_time[rank_num] + tWTR*process_interval > curr_time)
+		{  // tWTR constraint
+		  wrbub = true;
+		}
 
-                if (wrbub == false && last_read_time.first != rank_num &&
-                    curr_time < tRRBUB*process_interval + last_read_time.second)
-                {  // tRRBUB
-                  wrbub = true;
-                }
+		if (wrbub == false && last_read_time.first != rank_num &&
+		    curr_time < tRRBUB*process_interval + last_read_time.second)
+		{  // tRRBUB
+		  wrbub = true;
+		}
 
-                if (wrbub == false)
-                { // service the read request
-                  met_constraints = true;
-                }
-              }
-              break;
-            case et_evict:
-            case et_dir_evict:
-            case et_s_rd_wr:
-              // write
-              wr_dp_status.erase(wr_dp_status.begin(), wr_dp_status.lower_bound(curr_time));
-              wr_miter = wr_dp_status.lower_bound(curr_time + tCL*process_interval);
-              if ((full_duplex == false &&
-                    (miter == dp_status.end() || miter->first >= curr_time + (tCL+tBL)*process_interval)) ||
-                  (full_duplex == true  &&
-                   (wr_miter == wr_dp_status.end() || wr_miter->first >= curr_time + (tCL+tBL)*process_interval)))
-              {
-                bool rwbub = false;
-                // RWBUB
-                miter = dp_status.lower_bound(curr_time + tCL*process_interval - tRWBUB*process_interval);
-                while (full_duplex == false &&
-                    miter != dp_status.end() &&
-                    miter->first < curr_time + tCL*process_interval)
-                {
-                  if (miter->second == mc_bank_read)
-                  {
-                    rwbub = true;
-                    break;
-                  }
-                  ++miter;
-                }
+		if (wrbub == false)
+		{ // service the read request
+		  met_constraints = true;
+		}
+	      }
+	      break;
+	    case et_evict:
+	    case et_dir_evict:
+	    case et_s_rd_wr:
+	      // write
+	      wr_dp_status.erase(wr_dp_status.begin(), wr_dp_status.lower_bound(curr_time));
+	      wr_miter = wr_dp_status.lower_bound(curr_time + tCL*process_interval);
+	      if ((full_duplex == false &&
+		    (miter == dp_status.end() || miter->first >= curr_time + (tCL+tBL)*process_interval)) ||
+		  (full_duplex == true  &&
+		   (wr_miter == wr_dp_status.end() || wr_miter->first >= curr_time + (tCL+tBL)*process_interval)))
+	      {
+		bool rwbub = false;
+		// RWBUB
+		miter = dp_status.lower_bound(curr_time + tCL*process_interval - tRWBUB*process_interval);
+		while (full_duplex == false &&
+		    miter != dp_status.end() &&
+		    miter->first < curr_time + tCL*process_interval)
+		{
+		  if (miter->second == mc_bank_read)
+		  {
+		    rwbub = true;
+		    break;
+		  }
+		  ++miter;
+		}
 
-                if (rwbub == false && last_read_time_rank[rank_num] + tRWBUB*process_interval > curr_time)
-                {  // tRTW constraint
-                  rwbub = true;
-                }
+		if (rwbub == false && last_read_time_rank[rank_num] + tRWBUB*process_interval > curr_time)
+		{  // tRTW constraint
+		  rwbub = true;
+		}
 
-                if (rwbub == false)
-                { // service the write request
-                  met_constraints = true;
-                }
-              }
-              break;
-            default:
-              cout << "action_type = " << curr_bank.action_type << endl;
-              show_state(curr_time);  ASSERTX(0);
-              break;
-          }
-          if (met_constraints == true &&
-              (page_hit == false ||  // this request is page_hit
-               num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread))
-          {
-            c_idx  = i;
-            c_iter = iter;
-            page_hit = true;
-            num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
-          }
-        }
-        break;
+		if (rwbub == false)
+		{ // service the write request
+		  met_constraints = true;
+		}
+	      }
+	      break;
+	    default:
+	      cout << "action_type = " << curr_bank.action_type << endl;
+	      show_state(curr_time);  ASSERTX(0);
+	      break;
+	  }
+	  if (met_constraints == true &&
+	      (page_hit == false ||  // this request is page_hit
+	       num_req_from_a_th[(*iter)->th_id] < num_req_from_the_same_thread))
+	  {
+	    c_idx  = i;
+	    c_iter = iter;
+	    page_hit = true;
+	    num_req_from_the_same_thread = num_req_from_a_th[(*iter)->th_id];
+	  }
+	}
+	break;
       default:
-        cout << "curr (rank, bank) = (" << rank_num << ", " << bank_num << ")" << endl;
-        show_state(curr_time);  ASSERTX(0);
-        break;
+	cout << "curr (rank, bank) = (" << rank_num << ", " << bank_num << ")" << endl;
+	show_state(curr_time);  ASSERTX(0);
+	break;
     }
   }
 
@@ -611,202 +683,213 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
     uint32_t tRP_curr         = (access_agile) ? tRP_ab  : tRP;
     map<uint64_t, mc_bank_action>::iterator miter, rd_miter, wr_miter;
 
+    #ifdef NVM_EXT
+    tRAS_curr = (curr_bank.nvm_flag)? tRAS_nvm : tRAS_curr;
+    tRP_curr = (curr_bank.nvm_flag && curr_bank.dirty_flag)? tRP_nvm: tRP_curr;
+    #endif
+
     switch (curr_bank.action_type)
     {
       case mc_bank_precharge:
       case mc_bank_idle:
-        curr_bank.action_time  = curr_time;
-        curr_bank.page_num = page_num;
-        curr_bank.action_type  = mc_bank_activate;
-        last_activate_time[rank_num] = curr_time;
-        curr_bank.last_activate_time = curr_time;
-        num_activate++;
-        num_ab_activate += (access_agile) ? 1 : 0;
-        break;
+	curr_bank.action_time  = curr_time;
+	curr_bank.page_num = page_num;
+	curr_bank.action_type  = mc_bank_activate;
+	last_activate_time[rank_num] = curr_time;
+	curr_bank.last_activate_time = curr_time;
+	num_activate++;
+	num_ab_activate += (access_agile) ? 1 : 0;
+	break;
       case mc_bank_activate:
       case mc_bank_read:
       case mc_bank_write:
-        if (curr_bank.page_num != page_num)
-        {  // row miss
-          if (policy == mc_scheduling_open)
-          {
-            num_precharge++;
-            curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ?
-                curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
-            curr_bank.action_type = mc_bank_precharge;
-          }
-          break;
-        }
-        else
-        {  // row hit
-          last_time_from_ab = access_agile;
-          switch (type)
-          {
-            case et_rd_dir_info_req:
-            case et_rd_dir_info_rep:
-            case et_read:
-            case et_e_rd:
-            case et_s_rd:
-              // read
-              if (is_last_time_write[rank_num] == true)
-              {
-                is_last_time_write[rank_num] = false;
-                num_write_to_read_switch++;
-              }
-              num_read++;
-              num_ab_read += (access_agile) ? 1 : 0;
-              curr_bank.action_time = curr_time;
+	if (curr_bank.page_num != page_num)
+	{  // row miss
+	  if (policy == mc_scheduling_open)
+	  {
+	    num_precharge++;
+	    curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ?
+		curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
+	    curr_bank.action_type = mc_bank_precharge;
+	  }
+	  break;
+	}
+	else
+	{  // row hit
+	  last_time_from_ab = access_agile;
+	  switch (type)
+	  {
+	    case et_rd_dir_info_req:
+	    case et_rd_dir_info_rep:
+	    case et_read:
+	    case et_e_rd:
+	    case et_s_rd:
+	      // read
+	      if (is_last_time_write[rank_num] == true)
+	      {
+		is_last_time_write[rank_num] = false;
+		num_write_to_read_switch++;
+	      }
+	      num_read++;
+	      num_ab_read += (access_agile) ? 1 : 0;
+	      curr_bank.action_time = curr_time;
 
-              if (last_time_from_ab == true)
-              {
-              }
+	      if (last_time_from_ab == true)
+	      {
+	      }
 
-              for (uint32_t j = 0; j < tBL; j++)
-              {
-                uint64_t next_time = curr_time + (tCL_curr+j)*process_interval;
-                dp_status.insert   (pair<uint64_t, mc_bank_action>(next_time, mc_bank_read));
-                rd_dp_status.insert(pair<uint64_t, mc_bank_action>(next_time, mc_bank_read));
-              }
-              last_read_time.first  = rank_num;
-              last_read_time.second = curr_time;// + (tCL_curr + tBL)*process_interval;
-              last_read_time_rank[rank_num] = curr_time + (tCL_curr + tBL)*process_interval;
+	      for (uint32_t j = 0; j < tBL; j++)
+	      {
+		uint64_t next_time = curr_time + (tCL_curr+j)*process_interval;
+		dp_status.insert   (pair<uint64_t, mc_bank_action>(next_time, mc_bank_read));
+		rd_dp_status.insert(pair<uint64_t, mc_bank_action>(next_time, mc_bank_read));
+	      }
+	      last_read_time.first  = rank_num;
+	      last_read_time.second = curr_time;// + (tCL_curr + tBL)*process_interval;
+	      last_read_time_rank[rank_num] = curr_time + (tCL_curr + tBL)*process_interval;
 
-              directory->add_rep_event(curr_time + mc_to_dir_t_curr, *iter);
-              if (par_bs == true) num_req_from_a_th[(*iter)->th_id]--;
-              if (policy == mc_scheduling_open)
-              {
-                curr_bank.action_type = mc_bank_read;
-              }
-              else
-              {
-                curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ?
-                    curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
-                curr_bank.action_type = mc_bank_precharge;
-                num_precharge++;
-                iter2 = iter;
-                i2    = i;
-                ++iter2;
-                ++i2;
-                for ( ; iter2 != req_l.end() && i2 < req_window_sz; ++iter2, ++i2)
-                {
-                  uint64_t address  = (*iter2)->address;
-                  if (rank_num == get_rank_num(address) &&
-                      bank_num == get_bank_num(address) &&
-                      page_num == get_page_num(address))
-                  {
-                    curr_bank.action_type = mc_bank_read;
-                    num_precharge--;
-                    curr_bank.action_time -= tRP_curr*process_interval;
-                    break;
-                  }
-                }
-              }
-              if (par_bs == true && curr_batch_last == (int32_t)i)
-              {
-                if (i == 0)
-                {
-                  curr_batch_last = (int32_t)req_l.size() - 2;
-                  if (curr_batch_last > (int32_t)req_window_sz - 1) curr_batch_last = req_window_sz - 1;
-                }
-                else
-                {
-                  curr_batch_last--;
-                }
-              }
-              else if (par_bs == true && curr_batch_last > (int32_t)i)
-              {
-                curr_batch_last--;
-              }
-              req_l.erase(iter);
-              break;
-            case et_evict:
-            case et_dir_evict:
-            case et_s_rd_wr:
-              // write
-              is_last_time_write[rank_num] = true;
-              num_write++;
-              num_ab_write += (access_agile) ? 1 : 0;
-              curr_bank.action_time = curr_time;
+	      directory->add_rep_event(curr_time + mc_to_dir_t_curr, *iter);
+	      if (par_bs == true) num_req_from_a_th[(*iter)->th_id]--;
+	      if (policy == mc_scheduling_open)
+	      {
+		curr_bank.action_type = mc_bank_read;
+	      }
+	      else
+	      {
+		curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ?
+		    curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
+		curr_bank.action_type = mc_bank_precharge;
+		num_precharge++;
+		iter2 = iter;
+		i2    = i;
+		++iter2;
+		++i2;
+		for ( ; iter2 != req_l.end() && i2 < req_window_sz; ++iter2, ++i2)
+		{
+		  uint64_t address  = (*iter2)->address;
+		  if (rank_num == get_rank_num(address) &&
+		      bank_num == get_bank_num(address) &&
+		      page_num == get_page_num(address))
+		  {
+		    curr_bank.action_type = mc_bank_read;
+		    num_precharge--;
+		    curr_bank.action_time -= tRP_curr*process_interval;
+		    break;
+		  }
+		}
+	      }
+	      if (par_bs == true && curr_batch_last == (int32_t)i)
+	      {
+		if (i == 0)
+		{
+		  curr_batch_last = (int32_t)req_l.size() - 2;
+		  if (curr_batch_last > (int32_t)req_window_sz - 1) curr_batch_last = req_window_sz - 1;
+		}
+		else
+		{
+		  curr_batch_last--;
+		}
+	      }
+	      else if (par_bs == true && curr_batch_last > (int32_t)i)
+	      {
+		curr_batch_last--;
+	      }
+	      req_l.erase(iter);
+	      break;
+	    case et_evict:
+	    case et_dir_evict:
+	    case et_s_rd_wr:
+	      // write
+	      is_last_time_write[rank_num] = true;
+	      num_write++;
+	      num_ab_write += (access_agile) ? 1 : 0;
+	      curr_bank.action_time = curr_time;
 
-              if (last_time_from_ab == true)
-              {
-              }
+	      if (last_time_from_ab == true)
+	      {
+	      }
 
-              for (uint32_t j = 0; j < tBL; j++)
-              {
-                uint64_t next_time = curr_time + (tCL_curr+j)*process_interval;
-                dp_status.insert   (pair<uint64_t, mc_bank_action>(next_time, mc_bank_write));
-                wr_dp_status.insert(pair<uint64_t, mc_bank_action>(next_time, mc_bank_write));
-              }
-              last_write_time[rank_num] = curr_time + (tCL_curr+tBL)*process_interval;
+	      for (uint32_t j = 0; j < tBL; j++)
+	      {
+		uint64_t next_time = curr_time + (tCL_curr+j)*process_interval;
+		dp_status.insert   (pair<uint64_t, mc_bank_action>(next_time, mc_bank_write));
+		wr_dp_status.insert(pair<uint64_t, mc_bank_action>(next_time, mc_bank_write));
+	      }
+	      last_write_time[rank_num] = curr_time + (tCL_curr+tBL)*process_interval;
 
-              if (par_bs == true) num_req_from_a_th[(*iter)->th_id]--;
-              if (type == et_s_rd_wr)
-              {
-                (*iter)->type = et_s_rd;
-                directory->add_rep_event(curr_time + mc_to_dir_t_curr, *iter);
-              }
-              else
-              {
-                delete *iter;
-              }
-              if (policy == mc_scheduling_open)
-              {
-                curr_bank.action_type = mc_bank_write;
-              }
-              else
-              {
-                curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ? 
-                    curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
-                curr_bank.action_type = mc_bank_precharge;
-                num_precharge++;
-                iter2 = iter;
-                i2    = i;
-                ++iter2;
-                ++i2;
-                for ( ; iter2 != req_l.end() && i2 < req_window_sz; ++iter2, ++i2)
-                {
-                  uint64_t address  = (*iter2)->address;
-                  if (rank_num == get_rank_num(address) &&
-                      bank_num == get_bank_num(address) &&
-                      page_num == get_page_num(address))
-                  {
-                    curr_bank.action_type = mc_bank_write;
-                    num_precharge--;
-                    curr_bank.action_time -= tRP_curr*process_interval;
-                    break;
-                  }
-                }
-              }
-              if (par_bs == true && curr_batch_last == (int32_t)i)
-              {
-                if (i == 0)
-                {
-                  curr_batch_last = (int32_t)req_l.size() - 2;
-                  if (curr_batch_last > (int32_t)req_window_sz - 1) curr_batch_last = req_window_sz - 1;
-                }
-                else
-                {
-                  curr_batch_last--;
-                }
-              }
-              else if (par_bs == true && curr_batch_last > (int32_t)i)
-              {
-                curr_batch_last--;
-              }
-              req_l.erase(iter);
-              break;
-            default:
-              cout << "action_type = " << curr_bank.action_type << endl;
-              show_state(curr_time);  ASSERTX(0);
-              break;
-          }
-        }
-        break;
+	      if (par_bs == true) num_req_from_a_th[(*iter)->th_id]--;
+	      if (type == et_s_rd_wr)
+	      {
+		(*iter)->type = et_s_rd;
+		directory->add_rep_event(curr_time + mc_to_dir_t_curr, *iter);
+	      }
+	      else
+	      {
+		delete *iter;
+	      }
+	      if (policy == mc_scheduling_open)
+	      {
+		curr_bank.action_type = mc_bank_write;
+		#ifdef NVM_EXT
+		curr_bank.dirty_flag = true;  
+		#endif
+	      }
+	      else
+	      {
+		curr_bank.action_time = tRP_curr*process_interval + ((curr_time - curr_bank.last_activate_time >= tRAS_curr*process_interval) ? 
+		    curr_time : (tRAS_curr*process_interval + curr_bank.last_activate_time));
+		curr_bank.action_type = mc_bank_precharge;
+		num_precharge++;
+		iter2 = iter;
+		i2    = i;
+		++iter2;
+		++i2;
+		for ( ; iter2 != req_l.end() && i2 < req_window_sz; ++iter2, ++i2)
+		{
+		  uint64_t address  = (*iter2)->address;
+		  if (rank_num == get_rank_num(address) &&
+		      bank_num == get_bank_num(address) &&
+		      page_num == get_page_num(address))
+		  {
+		    curr_bank.action_type = mc_bank_write;
+		    #ifdef NVM_EXT
+		    curr_bank.dirty_flag = true;  
+		    #endif
+		    num_precharge--;
+		    curr_bank.action_time -= tRP_curr*process_interval;
+		    break;
+		  }
+		}
+	      }
+	      if (par_bs == true && curr_batch_last == (int32_t)i)
+	      {
+		if (i == 0)
+		{
+		  curr_batch_last = (int32_t)req_l.size() - 2;
+		  if (curr_batch_last > (int32_t)req_window_sz - 1) curr_batch_last = req_window_sz - 1;
+		}
+		else
+		{
+		  curr_batch_last--;
+		}
+	      }
+	      else if (par_bs == true && curr_batch_last > (int32_t)i)
+	      {
+		curr_batch_last--;
+	      }
+	      req_l.erase(iter);
+	      break;
+	    default:
+	      cout << "action_type = " << curr_bank.action_type << endl;
+	      show_state(curr_time);  ASSERTX(0);
+	      break;
+	  }
+	}
+	break;
       default:
-        cout << "curr (rank, bank) = (" << rank_num << ", " << bank_num << ")" << endl;
-        show_state(curr_time);  ASSERTX(0);
-        break;
+	cout << "curr (rank, bank) = (" << rank_num << ", " << bank_num << ")" << endl;
+	show_state(curr_time);  ASSERTX(0);
+	break;
     }
   }
 

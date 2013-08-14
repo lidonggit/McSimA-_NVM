@@ -55,6 +55,9 @@ namespace PinPthread
     mc_bank_write,
     mc_bank_precharge,
     mc_bank_idle,
+    #ifdef REF_EXT
+    mc_bank_refresh,
+    #endif
   };
 
   enum mc_scheduling_policy
@@ -77,6 +80,13 @@ namespace PinPthread
           list< pair<uint64_t, bool> > cached_pages;  // page number, dirty
           vector<uint32_t> bimodal_entry;             // 0 -- strongly open
 
+	  #ifdef NVM_EXT
+	  //lastCommand; 
+	  //unsigned stateChangeCountdown;
+	  bool dirty_flag;   //Dong: whether the bank has been written
+	  bool nvm_flag;    //Dong: whether this mem bank is NVRAM
+	  #endif
+
           BankStatus(uint32_t num_entries) :action_time(0), page_num(0), action_type(mc_bank_idle),
               last_activate_time(0), cached_pages(), bimodal_entry(num_entries, 0)
           {
@@ -98,22 +108,26 @@ namespace PinPthread
       const uint32_t mc_to_dir_t;
       const uint32_t num_ranks_per_mc;
       const uint32_t num_banks_per_rank;
+      #ifdef NVM_EXT
+      const uint32_t num_nvm_ranks_per_mc;
+      #endif
 
     private:
       // The unit of each t* value is "process_interval"
       // assume that RL = WL (in terms of DDRx)
       const uint32_t tRCD;
-      const uint32_t tRR;
+      const uint32_t tRR;	   //dong: nvram doesn't have?
       uint32_t       tRP;
-      const uint32_t tCL;           // CAS latency
+      const uint32_t tCL;           // CAS latency (DRAM and PCM have the same)
       const uint32_t tBL;           // burst length
-      const uint32_t tBBL;          // bank burst length
+      const uint32_t tBBL;          // bank burst length. 
       const uint32_t tRAS;          // activate to precharge
       // send multiple column level commands
-      const uint32_t tWRBUB;        // WR->RD bubble between any ranks
-      const uint32_t tRWBUB;        // RD->WR bubble between any ranks
-      const uint32_t tRRBUB;        // RD->RD bubble between two different ranks
-      const uint32_t tWTR;          // WR->RD time in the same rank
+      const uint32_t tWRBUB;        // WR->RD bubble between any ranks.(Dong: DRAM and PCM has the same value?) 
+      const uint32_t tRWBUB;        // RD->WR bubble between any ranks.(Dong: DRAM and PCM has the same value) 
+      const uint32_t tRRBUB;        // RD->RD bubble between two different ranks.
+      				     // (Dong: DRAM and PCM has the same value) 
+      const uint32_t tWTR;          // WR->RD time in the same rank (Dong: DRAM and PCM has the same value)
       const uint32_t req_window_sz; // up to how many requests can be considered during scheduling
       uint32_t       interleave_xor_base_bit;
 
@@ -125,6 +139,65 @@ namespace PinPthread
       bool     last_time_from_ab;
       uint32_t num_banks_with_agile_row;
       uint32_t reciprocal_of_agile_row_portion;
+
+      #ifdef REF_EXT
+      const uint32_t refresh_interval_nvm = 0;
+      const uint32_t tRFC_nvm;   //refresh period. represented by refresh_interval
+      unsigned refreshRank;
+      vector<unsigned> refreshCountdown;   //[rank]
+      #endif
+
+      #ifdef NVM_EXT    //parameters for NVM
+      const uint32_t tRAS_nvm;	  
+      		   //According to http://www.tweakers.fr/timings.html#tRAS
+		   //tRAS = tCL + tRCD + 2
+      			
+      const uint32_t tRCD_nvm;   
+      //const uint32_t tRC_nvm;	  //according to DRAM manul, tRC=tRAS+tRP. This parameter is not used in McSimA+ code
+      const uint32_t tRP_nvm;	 
+
+      /*some parameters that are shown in DRAMSim, but not shown in McSim*/
+      //tRRD  //Row activation to Row activation Delay. Minimum time interval between two row activation
+	    //commands to same DRAM device
+      //tRRDact  //parameters in both PCM and DRAM
+      //tRRDpre   //parameter in both PCM and DRAM
+      //tRC 	//tRC=tRAS+tRP. This parameter is not used in McSimA+ code.
+      //tCCD 	//minimum column to column command delay due to burst I/O gating (DRAM and PCM has the same value)
+      //tRTP	// interval between a read and a precharge command  (DRAM and PCM has the same value)
+      //tWR	//Write Recovery time. Minimum time interval between end of write data burst and the start of a
+		//precharge command. 
+      //tRTRS	//rank to rank switching time due to resynchronization issues
+      //tFAW  //Four bank Activation Window. A rolling time frame in which a maximum of four bank activation
+      	    //may be engaged.
+      //tCKE   //
+      //tXP    //exit precharge power-down to any non-READ command
+      //tCMD  //Command transport duration. Time period that a command occupies on the command bus as it is
+      	     //transported from the DRAM controller to the DRAM devices
+
+      /*parameters for power
+      IDD0=100;
+      IDD0_nvm=200;
+      IDD1=115;
+      IDD2P=10;
+      IDD2P_nvm=2;
+      IDD2Q=50;
+      IDD2N=50;
+      IDD2N_nvm=50;
+      IDD3Pf=45;
+      IDD3Ps=45;
+      IDD3N=62;
+      IDD3N_nvm=62;
+      IDD4W=230;
+      IDD4R=195;
+      IDD5=275;
+      IDD5_nvm=0;
+      IDD6=9;
+      IDD6_nvm=0;
+      IDD6L=12;
+      IDD7=400;
+      */
+      #endif   //NVM_EXT
+
     public:
       const uint32_t rank_interleave_base_bit;
       const uint32_t bank_interleave_base_bit;
