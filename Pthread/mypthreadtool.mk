@@ -47,7 +47,7 @@ PIN_LDFLAGS +=  ${PIN_LPATHS}
 #LIBS += -L/home/dol/libraries/snappy/lib -lsnappy
 #INCS += -I/usr/local/include -I/home/dol/libraries/snappy/include
 
-LIBS += -L${SNAPPY_DIR}/lib
+LIBS += -L${SNAPPY_DIR}/lib -lsnappy
 INCS += -I/usr/local/include -I${SNAPPY_DIR}/include
 
 ifeq ($(TAG),dbg)
