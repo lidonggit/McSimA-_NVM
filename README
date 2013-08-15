@@ -36,7 +36,7 @@ How to compile
     export LD_LIBRARY_PATH=/usr/local/lib:
 4. Compile Pthread
  - cd /home/scale/Pthread
- - make TOOLS_DIR=/home/scale/pin/source/tools -j 8
+ - make TOOLS_DIR=/home/scale/pin/source/tools SNAPPY_DIR=/home/scale/xxx -j 8
 5. Compile a test program 'stream'
  - cd /home/scale/McSim/stream
  - make

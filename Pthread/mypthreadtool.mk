@@ -26,8 +26,8 @@ PIN_KIT ?= ../../..
 XEDKIT        = $(PIN_KIT)/extras/xed2-$(TARGET_LONG)
 PIN_LPATHS   += -L$(XEDKIT)/lib -L$(PIN_KIT)/$(TARGET_LONG)/lib -L$(PIN_KIT)/$(TARGET_LONG)/lib-ext
 PIN_CXXFLAGS += -I$(XEDKIT)/include -I$(PIN_KIT)/extras/components/include \
-                -I$(PIN_KIT)/source/include/pin -I$(PIN_KIT)/source/include/pin/gen
-VSCRIPT_DIR = $(PIN_KIT)/source/include/pin
+                -I$(PIN_KIT)/source/include -I$(PIN_KIT)/source/include/gen
+VSCRIPT_DIR = $(PIN_KIT)/source/include
 
 PIN_BASE_LIBS := 
 PIN_BASE_LIBS += -lxed
@@ -44,8 +44,11 @@ PIN_LDFLAGS += $(PIN_SOFLAGS)
 PIN_LIBS = -lpin $(PIN_BASE_LIBS) $(PIN_BASE_LIBS_MAC)
 PIN_LDFLAGS +=  ${PIN_LPATHS}
 
-LIBS += -L/usr/local/lib -lsnappy
-INCS += -I/usr/local/include
+#LIBS += -L/home/dol/libraries/snappy/lib -lsnappy
+#INCS += -I/usr/local/include -I/home/dol/libraries/snappy/include
+
+LIBS += -L${SNAPPY_DIR}/lib
+INCS += -I/usr/local/include -I${SNAPPY_DIR}/include
 
 ifeq ($(TAG),dbg)
   DBG = -Wall
