@@ -74,10 +74,10 @@ MemoryController::MemoryController(
   req_l(),
   mc_to_dir_t  (get_param_uint64("to_dir_t", 1000)),
   num_ranks_per_mc (get_param_uint64("num_ranks_per_mc", 1)),
+  num_banks_per_rank(get_param_uint64("num_banks_per_rank", 8)),
   #ifdef NVM_EXT
   num_nvm_ranks_per_mc (get_param_uint64("num_nvm_ranks_per_mc", 0)),
   #endif
-  num_banks_per_rank(get_param_uint64("num_banks_per_rank", 8)),
   tRCD         (get_param_uint64("tRCD", 10)),
   #ifdef NVM_EXT
   tRCD_nvm     (get_param_uint64("tRCD_nvm", 44)),
@@ -92,7 +92,7 @@ MemoryController::MemoryController(
   tBBL         (get_param_uint64("tBBL", tBL)),
   tRAS         (get_param_uint64("tRAS", 15)),
   #ifdef NVM_EXT
-  tRAS         (get_param_uint64("tRAS_nvm", 15)),
+  tRAS_nvm     (get_param_uint64("tRAS_nvm", 15)),
   #endif
   tWRBUB       (get_param_uint64("tWRBUB", 2)),
   tRWBUB       (get_param_uint64("tRWBUB", 2)),
@@ -200,17 +200,28 @@ MemoryController::MemoryController(
 
   #ifdef NVM_EXT
   //initialize bank status based on the NVM configuration
-   BankStatus & temp_bank;
-   for(int i=0; i<num_ranks_per_mc; i++)
-     for(int j=0; j<num_banks_per_rank; j++)
+   for(uint32_t i=0; i<num_ranks_per_mc; i++)
+     for(uint32_t j=0; j<num_banks_per_rank; j++)
      {
-       temp_bank = bank_status[i][j];
+       BankStatus & temp = bank_status[i][j];
        if( i < num_nvm_ranks_per_mc)
        {
-	 temp_bank.nvm_flag = true;
-	 temp_bank.dirty_flag = false;
+	 temp.nvm_flag = true;
+	 temp.dirty_flag = false;
        }
+       else
+       {
+	 temp.nvm_flag = false;
+	 temp.dirty_flag = false;
+       }
+
+       #ifdef DONG_DEBUG
+       cout << "[McSimA+]: mc[" << num <<"]: (" << i << ", " << j << ")" 
+       	    << "  nvm_flag = "  << temp.nvm_flag << "  dirty_flag = " << temp.dirty_flag << endl;
+       #endif
      }
+    /*cout << "[McSimA+]: mc[" << num <<"]: num_nvm_ranks_per_mc = " 
+    	<< num_nvm_ranks_per_mc << endl; */
   #endif
 
 }
@@ -276,6 +287,7 @@ void MemoryController::add_req_event(
 
     if (local_event->type == et_evict || local_event->type == et_dir_evict)
     {
+      /*Dong: under the current default configue, this branch is never taken*/
       num_write++;
       delete local_event;
     }
@@ -457,13 +469,23 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
 
     bool access_agile = false;
     uint32_t tRCD_curr= (access_agile) ? tRCD_ab : tRCD;
-    uint32_t tRP_curr = 0;
+    //uint32_t tRP_curr = 0;  //is this a bug?
+    uint32_t tRP_curr = (access_agile) ? tRP_ab : tRP;   //Dong: I change the above line
 
     BankStatus & curr_bank = bank_status[rank_num][bank_num];
     #ifdef NVM_EXT
     tRCD_curr = (curr_bank.nvm_flag)? tRCD_nvm : tRCD_curr;    
     //For tRP, we assume that the NVM bank without been written has the same tRP as DRAM
     tRP_curr = (curr_bank.nvm_flag && curr_bank.dirty_flag)? tRP_nvm: tRP_curr;  //quantify array write latency
+
+      #ifdef DONG_DEBUG
+      cout << "[McSimA+]: mc[" << num <<"]: addr=" << hex << address << dec 
+    	 << "(" << rank_num << ", " << bank_num << ")"
+	 << "  dirty_flag=" <<  curr_bank.dirty_flag  
+	 << "  nvm_flag=" << curr_bank.nvm_flag
+    	 << "  tRCD=" << tRCD << "   tRCD_curr=" << tRCD_curr 
+	 << "  tRP=" << tRP << "   tRP_curr=" << tRP_curr << endl;
+      #endif
     #endif
 
     map<uint64_t, mc_bank_action>::iterator miter, rd_miter, wr_miter;
@@ -481,7 +503,16 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
 	}
 	#ifdef NVM_EXT
 	else
+	{
 	  curr_bank.dirty_flag = false;  //Dong: just finish precharging
+
+	  #ifdef DONG_DEBUG
+	  cout << "[McSimA+]: mc[" << num <<"]: addr=" << hex << address << dec
+               << "(" << rank_num << ", " << bank_num << ")"
+               << "   After precharge:  dirty_flag=" <<  curr_bank.dirty_flag
+               << "  nvm_flag=" << curr_bank.nvm_flag << endl;
+	  #endif
+	}
 	#endif
       case mc_bank_idle:
 	if (page_hit == false &&  // page_hit has priority 2
@@ -686,6 +717,15 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
     #ifdef NVM_EXT
     tRAS_curr = (curr_bank.nvm_flag)? tRAS_nvm : tRAS_curr;
     tRP_curr = (curr_bank.nvm_flag && curr_bank.dirty_flag)? tRP_nvm: tRP_curr;
+
+      #ifdef DONG_DEBUG
+      cout << "[McSimA+]: mc[" << num <<"]: addr=" << hex << address << dec
+         << "(" << rank_num << ", " << bank_num << ")"
+	 << "  dirty_flag=" <<  curr_bank.dirty_flag
+         << "  nvm_flag=" << curr_bank.nvm_flag
+         << "  tRAS=" << tRAS << "   tRAS_curr=" << tRAS_curr
+         << "  tRP=" << tRP << "   tRP_curr" << tRP_curr << endl;
+      #endif
     #endif
 
     switch (curr_bank.action_type)
@@ -830,8 +870,16 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
 	      if (policy == mc_scheduling_open)
 	      {
 		curr_bank.action_type = mc_bank_write;
+		cout << "here i am 1" << endl; 
 		#ifdef NVM_EXT
-		curr_bank.dirty_flag = true;  
+		curr_bank.dirty_flag = true; 
+
+		   #ifdef DONG_DEBUG
+	  	   cout << "[McSimA+]: mc[" << num <<"]: addr=" << hex << address << dec
+                     << "(" << rank_num << ", " << bank_num << ")"
+                     << "   doing write:  dirty_flag=" <<  curr_bank.dirty_flag
+                     << "  nvm_flag=" << curr_bank.nvm_flag << endl;
+		   #endif
 		#endif
 	      }
 	      else
@@ -853,8 +901,16 @@ uint32_t MemoryController::process_event(uint64_t curr_time)
 		  {
 		    curr_bank.action_type = mc_bank_write;
 		    #ifdef NVM_EXT
-		    curr_bank.dirty_flag = true;  
+		    curr_bank.dirty_flag = true; 
+
+		      #ifdef DONG_DEBUG
+	  	    	cout << "[McSimA+]: mc[" << num <<"]: addr=" << hex << address << dec
+                        << "(" << rank_num << ", " << bank_num << ")"
+                        << "   doing write:  dirty_flag=" <<  curr_bank.dirty_flag
+                        << "  nvm_flag=" << curr_bank.nvm_flag << endl;
+		      #endif
 		    #endif
+
 		    num_precharge--;
 		    curr_bank.action_time -= tRP_curr*process_interval;
 		    break;

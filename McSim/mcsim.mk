@@ -10,6 +10,7 @@ INCS = -I../../../extras/xed2-intel64/include
 ifeq ($(TAG),dbg)
   DBG = -Wall
   OPT = -ggdb -g -O0
+  CXXFLAGS+=-DDONG_DEBUG
 else
   #DBG = -DNDEBUG
   DBG =
@@ -20,7 +21,12 @@ endif
 #OPT = -O3 -DNDEBUG -msse2 -march=pentium-m -mfpmath=sse
 #CXXFLAGS = -Wall -Wno-unknown-pragmas -Winline $(DBG) $(OPT) 
 #CXXFLAGS = -fPIC -Wno-unknown-pragmas $(DBG) $(OPT) 
-CXXFLAGS = -Wno-unknown-pragmas $(DBG) $(OPT) 
+CXXFLAGS += -Wno-unknown-pragmas $(DBG) $(OPT)
+
+ifeq ($(NVM_EXT), Y)
+CXXFLAGS+=-DNVM_EXT
+endif
+
 CXX = g++ -DTARGET_IA32E
 CC  = gcc -DTARGET_IA32E
 #CXX = icpc -DTARGET_IA32E
