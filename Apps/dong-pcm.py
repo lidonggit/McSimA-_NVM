@@ -140,6 +140,7 @@ pts.mc.num_pages_per_bank = 8192
 pts.mc.par_bs = true
 pts.mc.full_duplex = false
 pts.mc.is_fixed_latency = false
+pts.mc.is_fixed_bw_n_latenc = false;
 pts.mc.display_os_page_usage = false
 
 pts.l1dtlb.num_entries  = 64
