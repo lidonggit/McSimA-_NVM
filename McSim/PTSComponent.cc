@@ -64,7 +64,11 @@ Component::Component(
     component_type type_,
     uint32_t num_,
     McSim * mcsim_)
+#ifdef MALLOC_INTERCEPT
+:type(type_), num(num_), mcsim(mcsim_), geq(mcsim_->global_q), nvmdata(mcsim_->nvmdata)
+#else
 :type(type_), num(num_), mcsim(mcsim_), geq(mcsim_->global_q)
+#endif
 {
   mcsim->comps.push_back(this);
 }

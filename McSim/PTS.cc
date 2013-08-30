@@ -40,7 +40,7 @@ using namespace PinPthread;
 
 
 PthreadTimingSimulator::PthreadTimingSimulator(const string & mdfile)
- :params(), trace_files()
+:params(), trace_files()
 {
   ifstream fin(mdfile.c_str());
   bool print_md = false;
@@ -64,20 +64,20 @@ PthreadTimingSimulator::PthreadTimingSimulator(const string & mdfile)
 
       if (param == "trace_file_name")
       {
-        trace_files.push_back(value);
+	trace_files.push_back(value);
       }
       else if (param == "print_md" && value == "true")
       {
-        print_md = true;
+	print_md = true;
       }
       else if (param.find("process_bw") != string::npos)
       {
-        param.replace(param.find("process_bw"), 10, "process_interval");
-        params[param] = value;
+	param.replace(param.find("process_bw"), 10, "process_interval");
+	params[param] = value;
       }
       else
       {
-        params[param] = value;
+	params[param] = value;
       }
     }
 
@@ -87,7 +87,7 @@ PthreadTimingSimulator::PthreadTimingSimulator(const string & mdfile)
       fin.open(mdfile.c_str());
       while (getline(fin, line))
       {
-        std::cout << line << std::endl;
+	std::cout << line << std::endl;
       }
       fin.close();
     }
@@ -110,7 +110,64 @@ pair<uint32_t, uint64_t> PthreadTimingSimulator::resume_simulation(bool must_swi
   return mcsim->resume_simulation(must_switch);  // <thread_id, time>
 }
 
+#ifdef MALLOC_INTERCEPT
+void PthreadTimingSimulator::add_heap_mem(uint64_t addr, int heap_size)
+{
+  cout << "[McSim:] add_heap_mem: addr="<< hex << addr << dec 
+       << "   heap_size=" << heap_size << "  will be added into the nvmdata list"  << endl;
+  HeapMemRec * hmr = new HeapMemRec();
+  hmr->start_address = addr;
+  hmr->end_address = addr + heap_size -1;
+  hmr->avail_flag = true;
+  mcsim->nvmdata->nvmdata_l.push_front(hmr);
+}
 
+/*HeapMemRec * PthreadTimingSimulator::search_heap_mem(uint64_t addr)
+{
+  list<HeapMemRec *>::iterator iter;
+  //for(iter = mcsim->ckpm->ckpm_l.begin(); iter != mcsim->ckpm->ckpm_l.end(); iter++)
+  for(iter = mcsim->nvmdata->nvmdata_l.begin(); iter != mcsim->nvmdata->nvmdata_l.end(); iter++)
+  {
+    if(addr == (*iter)->start_address && (*iter)->avail_flag)
+    {
+      return (*iter);
+    }
+  }
+
+  return NULL;
+}*/
+
+void PthreadTimingSimulator::free_heap_mem(uint64_t addr)
+{
+  cout << "[McSim:] free_heap_mem: addr="<< hex << addr << dec << endl;
+ 
+  list<HeapMemRec *>::iterator iter = mcsim->nvmdata->nvmdata_l.begin();
+  while (iter != mcsim->nvmdata->nvmdata_l.end())
+  {
+    if(addr == (*iter)->start_address && (*iter)->avail_flag)
+    {
+	iter = mcsim->nvmdata->nvmdata_l.erase(iter);
+        cout << "[McSim:] free_heap_mem: addr="<<hex << addr << dec << 
+	     " is removed from the nvmdata list" << endl;
+    }
+    else
+	++iter; 	
+  }
+}
+
+#ifdef APP_HPL
+void PthreadTimingSimulator::update_heap_mem_for_hpl(uint64_t addr, int size)
+{
+  list<HeapMemRec *>::iterator iter;
+  iter = mcsim->nvmdata->nvmdata_l.begin();
+  std::cout << "[McSim: HPL update mem]: previous start_addr = " << hex << (*iter)->start_address
+    << " is updated to " << addr << dec << "  size = "  << size << endl;
+  (*iter)->start_address = addr;
+  (*iter)->end_address = addr + size -1;
+}
+
+#endif  //HPL
+#endif  //MALLOC_INTERCEPT
 
 bool PthreadTimingSimulator::add_instruction(
     uint32_t hthreadid_,
@@ -132,9 +189,9 @@ bool PthreadTimingSimulator::add_instruction(
     )
 {
   return mcsim->add_instruction(hthreadid_, curr_time_,
-    waddr, wlen, raddr, raddr2, rlen, ip, category,
-    isbranch, isbranchtaken, islock, isunlock, isbarrier,
-    rr0, rr1, rr2, rr3, rw0, rw1, rw2, rw3);
+      waddr, wlen, raddr, raddr2, rlen, ip, category,
+      isbranch, isbranchtaken, islock, isunlock, isbarrier,
+      rr0, rr1, rr2, rr3, rw0, rw1, rw2, rw3);
 }
 
 
@@ -176,19 +233,19 @@ uint64_t PthreadTimingSimulator::get_param_uint64(const string & str, uint64_t d
       // hex
       for (uint32_t i = 2; i < value.length(); i++)
       {
-        ret <<= 4;
-        if (value.at(i) >= 'A' && value.at(i) <= 'F')
-        {
-          ret += (value.at(i) - 'A' + 10);
-        }
-        else if (value.at(i) >= 'a' && value.at(i) <= 'f')
-        {
-          ret += (value.at(i) - 'a' + 10);
-        }
-        else
-        {
-          ret += (value.at(i) - '0');
-        }
+	ret <<= 4;
+	if (value.at(i) >= 'A' && value.at(i) <= 'F')
+	{
+	  ret += (value.at(i) - 'A' + 10);
+	}
+	else if (value.at(i) >= 'a' && value.at(i) <= 'f')
+	{
+	  ret += (value.at(i) - 'a' + 10);
+	}
+	else
+	{
+	  ret += (value.at(i) - '0');
+	}
       }
     }
     else if (value.find("^", 1) != string::npos)
@@ -204,7 +261,7 @@ uint64_t PthreadTimingSimulator::get_param_uint64(const string & str, uint64_t d
       ret = 1;
       for (uint32_t i = 0; i < exp; i++)
       {
-        ret *= base;
+	ret *= base;
       }
     }
     else

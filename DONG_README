@@ -1,0 +1,21 @@
+* To enable the debug mode, add dbg as an option for make.
+* To enable NVM support, add NVM_EXT=Y as an option for make.
+* To intercept specific heap memory allocation, add MALLOC_INTERCEPT=Y as an option for make
+
+For example, the following enables the debug mode as well NVM spport and intercepting 
+specific heap memory allocation.
+make INCS=-I/home/scale/pin/extras/xed2-intel64/include \
+	  NVM_EXT=Y dbg MALLOC_INTERCEPT=Y -j 8
+
+* You can configure the heap memory size when you intercept heap memory allocation by doing 
+the following.
+  export HEAP_MEM_SIZE=1024 
+"1024" refers to 1024 bytes.
+
+* There is an example to show how to intercept heap memory allocation.
+You can find the example in McSimA-_NVM/Apps/mem_alloc
+To run the example code with the simulator, try the following
+
+cd McSimA-_NVM/McSim
+./mcsim -mdfile ../Apps/dong-pcm.py -runfile ../Apps/list/run-mem_alloc.py
+

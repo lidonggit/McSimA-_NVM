@@ -88,6 +88,11 @@ enum pts_msg_type
   pts_get_param_bool,
   pts_get_curr_time,
   pts_invalid,
+  #ifdef MALLOC_INTERCEPT
+  pts_add_heap_mem,
+  pts_free_heap_mem,
+  pts_update_heap_mem_for_hpl,
+  #endif
 };
 
 
@@ -130,7 +135,8 @@ struct PTSMessage
   uint32_t     uint32_t_val;
   uint64_t     uint64_t_val;
   ADDRINT      stack_val;
-  ADDRINT      stacksize_val;
+  //ADDRINT      stacksize_val;
+  ADDRINT      memsize_val;
   instr_n_str  val;
 };
 
@@ -140,6 +146,18 @@ using namespace std;
 namespace PinPthread 
 {
   class McSim;
+
+  #ifdef MALLOC_INTERCEPT
+  #define STRING_NAME_LENGTH 1024
+  struct HeapMemRec
+  {
+    uint64_t start_address;
+    uint64_t end_address;
+    bool avail_flag;            //whether the heap mem is freed.
+    char rtn_name[STRING_NAME_LENGTH];  //where the heap mem is allocated
+    char lib_name[STRING_NAME_LENGTH];  //where the heap mem is allocated
+  };
+  #endif
 
   class PthreadTimingSimulator
   {
@@ -175,7 +193,14 @@ namespace PinPthread
       bool     get_param_bool(const string & idx_, bool def_value) const;
       string   get_param_str(const string & idx_) const;
       uint64_t get_curr_time() const;
-
+      #ifdef MALLOC_INTERCEPT 
+      void add_heap_mem(uint64_t addr, int heap_size);
+      void free_heap_mem(uint64_t addr);
+      //HeapMemRec * search_heap_mem(uint64_t addr);
+	#ifdef APP_HPL
+	void update_heap_mem_for_hpl(uint64_t addr, int size);
+	#endif
+      #endif
       std::map<string, string> params;
       std::vector<string>      trace_files;
 

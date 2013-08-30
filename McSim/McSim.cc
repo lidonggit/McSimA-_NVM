@@ -183,6 +183,10 @@ McSim::McSim(PthreadTimingSimulator * pts_)
   time_between_last_access_and_cache_destroy_last_time(0)
 {
   global_q      = new GlobalEventQueue(this);
+  #ifdef  MALLOC_INTERCEPT
+  nvmdata = new NVMData(this);
+  cout << "McSim [init]: McSim has MALLOC_INTERCEPT enabled" << endl;
+  #endif
   num_hthreads  = pts->get_param_uint64("pts.num_hthreads", max_hthreads);
   use_o3core    = pts->get_param_str("pts.use_o3core") == "true" ? true : false;
   use_rbol      = pts->get_param_str("pts.use_rbol") == "true" ? true : false;

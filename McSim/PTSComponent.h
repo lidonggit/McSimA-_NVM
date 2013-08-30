@@ -119,7 +119,18 @@ namespace PinPthread
     void display();
   };
 
+  #ifdef MALLOC_INTERCEPT
+  class NVMData   //heap data placed in NVM
+  {
+    public:
+      NVMData(McSim * mcsim_):mcsim(mcsim_){};
+      ~NVMData();
 
+      list<HeapMemRec *> nvmdata_l;
+      McSim * mcsim;
+      uint32_t dummy; //saved for the future
+  };
+  #endif  //MALLOC_INTERCEPT
 
   class Component  // meta-class
   {
@@ -132,7 +143,9 @@ namespace PinPthread
       uint32_t                 num;
       McSim                  * mcsim;
       GlobalEventQueue       * geq;  // global event queue
-
+      #ifdef MALLOC_INTERCEPT
+      NVMData  * nvmdata;
+      #endif
       virtual void add_req_event(uint64_t, LocalQueueElement *, Component * from) { ASSERTX(0); }
       virtual void add_rep_event(uint64_t, LocalQueueElement *, Component * from) { ASSERTX(0); }
       virtual void add_req_event(uint64_t a, LocalQueueElement * b) { add_req_event(a, b, NULL); }

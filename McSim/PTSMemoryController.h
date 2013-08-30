@@ -111,7 +111,6 @@ namespace PinPthread
       #ifdef NVM_EXT
       const uint32_t num_nvm_ranks_per_mc;
       #endif
-
     private:
       // The unit of each t* value is "process_interval"
       // assume that RL = WL (in terms of DDRx)

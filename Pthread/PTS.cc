@@ -100,6 +100,72 @@ pair<uint32_t, uint64_t> PthreadTimingSimulator::resume_simulation(bool must_swi
 }
 
 
+#ifdef MALLOC_INTERCEPT
+void PthreadTimingSimulator::add_heap_mem(uint64_t addr, int heap_size)
+{
+  //mcsim->nvmdata->nvmdata_l.push_front(hmr);
+   
+   if (num_piled_instr) send_instr_batch();
+   PTSMessage * ptsmessage  = (PTSMessage *) buffer;
+   ptsmessage->type         = pts_add_heap_mem; 
+   ptsmessage->uint64_t_val = addr;
+   ptsmessage->memsize_val = heap_size;
+   sendto(sockfd, buffer, sizeof(PTSMessage), 0, (struct sockaddr *)&(my_addr), sizeof(struct sockaddr));
+   recvfrom(sockfd, buffer, sizeof(PTSMessage)-sizeof(instr_n_str), 0, (struct sockaddr *)&(my_addr), &addr_len);
+}
+
+void PthreadTimingSimulator::free_heap_mem(uint64_t addr)
+{
+  //mcsim->nvmdata->nvmdata_l.push_front(hmr);
+   
+   if (num_piled_instr) send_instr_batch();
+   PTSMessage * ptsmessage  = (PTSMessage *) buffer;
+   ptsmessage->type         = pts_free_heap_mem; 
+   ptsmessage->uint64_t_val = addr;
+   sendto(sockfd, buffer, sizeof(PTSMessage), 0, (struct sockaddr *)&(my_addr), sizeof(struct sockaddr));
+   recvfrom(sockfd, buffer, sizeof(PTSMessage)-sizeof(instr_n_str), 0, (struct sockaddr *)&(my_addr), &addr_len);
+}
+
+#if 0
+//HeapMemRec * PthreadTimingSimulator::search_heap_mem(uint64_t addr)
+void PthreadTimingSimulator::search_heap_mem(uint64_t addr)
+{
+   #if 0
+   list<HeapMemRec *>::iterator iter;
+   //for(iter = mcsim->ckpm->ckpm_l.begin(); iter != mcsim->ckpm->ckpm_l.end(); iter++)
+   for(iter = mcsim->nvmdata->nvmdata_l.begin(); iter != mcsim->nvmdata->nvmdata_l.end(); iter++)
+   {
+     if(addr == (*iter)->start_address && (*iter)->avail_flag)
+     {
+	return (*iter); 
+     }
+   }
+   return NULL;
+   #endif
+
+   if (num_piled_instr) send_instr_batch();
+   PTSMessage * ptsmessage  = (PTSMessage *) buffer;
+   ptsmessage->type         = pts_search_heap_mem; 
+   ptsmessage->uint64_t_val = addr;
+   sendto(sockfd, buffer, sizeof(PTSMessage), 0, (struct sockaddr *)&(my_addr), sizeof(struct sockaddr));
+   recvfrom(sockfd, buffer, sizeof(PTSMessage)-sizeof(instr_n_str), 0, (struct sockaddr *)&(my_addr), &addr_len);
+}
+#endif
+
+#ifdef APP_HPL
+void PthreadTimingSimulator::update_heap_mem_for_hpl(uint64_t addr, int heap_size)
+{
+   if (num_piled_instr) send_instr_batch();
+   PTSMessage * ptsmessage  = (PTSMessage *) buffer;
+   ptsmessage->type         = pts_update_heap_mem_for_hpl;
+   ptsmessage->uint64_t_val = addr;
+   ptsmessage->memsize_val = heap_size;
+   sendto(sockfd, buffer, sizeof(PTSMessage), 0, (struct sockaddr *)&(my_addr), sizeof(struct sockaddr));
+   recvfrom(sockfd, buffer, sizeof(PTSMessage)-sizeof(instr_n_str), 0, (struct sockaddr *)&(my_addr), &addr_len);
+}
+#endif //HPL
+#endif  //MALLOC_INTERCEPT
+
 
 bool PthreadTimingSimulator::add_instruction(
     uint32_t hthreadid_,
@@ -188,7 +254,8 @@ void PthreadTimingSimulator::set_stack_n_size(
   ptsmessage->type         = pts_set_stack_n_size;
   ptsmessage->uint32_t_val = pth_id;
   ptsmessage->stack_val    = stack;
-  ptsmessage->stacksize_val= stacksize;
+  //ptsmessage->stacksize_val= stacksize;
+  ptsmessage->memsize_val= stacksize;
   sendto(sockfd, buffer, sizeof(PTSMessage), 0, (struct sockaddr *)&(my_addr), sizeof(struct sockaddr));
   recvfrom(sockfd, buffer, sizeof(PTSMessage)-sizeof(instr_n_str), 0, (struct sockaddr *)&(my_addr), &addr_len);
 }

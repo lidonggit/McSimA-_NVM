@@ -150,6 +150,9 @@ namespace PinPthread
       vector<Directory *>        dirs;
       vector<RBoL *>             rbols;
       vector<MemoryController *> mcs;
+      #ifdef MALLOC_INTERCEPT
+      NVMData *   	nvmdata;  //data placed in NVM
+      #endif
       GlobalEventQueue *         global_q;
       vector<TLBL1 *>            tlbl1ds;
       vector<TLBL1 *>            tlbl1is;

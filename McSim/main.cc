@@ -233,11 +233,21 @@ int main(int argc, char * argv[])
     {
       // child process
       chdir(programs[i].directory.c_str());
+
+      #ifdef MALLOC_INTERCEPT
+      char * envp[4];
+      envp [0] = NULL;
+      envp [1] = NULL;
+      envp [2] = NULL;
+      envp [3] = NULL;
+      #else
       char * envp[3];
       envp [0] = NULL;
       envp [1] = NULL;
       envp [2] = NULL;
+      #endif
 
+      
       ld_library_path_full = string("LD_LIBRARY_PATH=")+ld_library_path;
 
       //envp[0] = (char *)programs[i].directory.c_str();
@@ -260,7 +270,27 @@ int main(int argc, char * argv[])
       //string ld_path = string("LD_LIBRARY_PATH=")+ld_library_path;
       //envp[1] = (char *)(ld_path.c_str());
       //envp[2] = NULL;
-
+      
+      #ifdef MALLOC_INTERCEPT
+      if(getenv("HEAP_MEM_SIZE")== NULL)
+      {
+      	//envp [2] = (char *)"HEAP_MEM_SIZE=";    
+      	envp [2] = NULL;    
+      }
+      else
+      {
+	string heap_mem_size_string;
+	heap_mem_size_string = string("HEAP_MEM_SIZE=")+string(getenv("HEAP_MEM_SIZE"));
+	envp [2] = (char *)heap_mem_size_string.c_str();
+      }
+      envp[3] = NULL; 
+    
+      #ifdef DONG_DEBUG 
+      cout << "[McSim]: envp[0]= " << envp[0] << "    envp[1]="<< envp[1] 
+	   << "   envp[2]="<< envp[2] << endl;
+      #endif
+      #endif  //MALLOC_INTERCEPT
+      
       char ** argp = new char * [programs[i].prog_n_argv.size() + 17];
       int  curr_argc = 0;
       char port_num_str[10];
@@ -525,7 +555,7 @@ int main(int argc, char * argv[])
         pts->set_stack_n_size(
             old_mapping_inv[curr_p->tid_to_htid + pts_m->uint32_t_val],
             pts_m->stack_val       + ((((uint64_t)curr_pid) << addr_offset_lsb) + (((uint64_t)curr_pid) << interleave_base_bit)),
-            pts_m->stacksize_val);
+            pts_m->memsize_val);
         break;
       case pts_constructor:
         break;
@@ -548,6 +578,26 @@ int main(int argc, char * argv[])
         //cout << curr_pid << "   " << pts_m->uint32_t_val << "   " << pts_m->uint64_t_val << endl;
         break;
       }
+      #ifdef MALLOC_INTERCEPT
+      case pts_add_heap_mem:
+      {
+	pts->add_heap_mem(pts_m->uint64_t_val, pts_m->memsize_val); //addr and size
+	break;
+      }
+      case pts_free_heap_mem:
+      {
+	pts->free_heap_mem(pts_m->uint64_t_val);
+	break;
+      }
+      #ifdef   APP_HPL
+      case pts_update_heap_mem_for_hpl:
+      {
+        pts->update_heap_mem_for_hpl(pts_m->uint64_t_val, pts_m->memsize_val); //addr and size
+	break;
+      }
+      #endif
+      #endif //malloc_intercept
+
       default:
         cout << "type " << pts_m->type << " is not supported" << endl;
         assert(0);

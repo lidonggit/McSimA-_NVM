@@ -51,7 +51,16 @@ namespace PinPthread
     /* Global Variables                                               */
     /* -------------------------------------------------------------- */
     
-    PthreadSim* pthreadsim;
+    extern PthreadSim* pthreadsim;
+
+    #ifdef MALLOC_INTERCEPT
+    extern int exp_heap_size;
+    #endif
+
+    #ifdef DONG_TRIGGER_SIM	
+    extern bool start_sim_flag;
+    #endif
+	
 #if 0
     [FIXME] add knob to let user pick stack size of new threads
     KNOB<UINT32> KnobStackSize(KNOB_MODE_WRITEONCE, "pintool",
@@ -68,6 +77,14 @@ namespace PinPthread
     VOID  FlagImg(IMG, VOID*);
     VOID  FlagRtn(RTN, VOID*);
     VOID  FlagTrace(TRACE, VOID*);
+    #ifdef MALLOC_INTERCEPT
+    VOID  FlagHeap(IMG, VOID*);
+    #endif
+
+    #ifdef DONG_TRIGGER_SIM
+    VOID  TriggerSim(IMG, VOID*);   //Dong:
+    #endif
+
     int   CallPthreadAttrDestroy(ADDRINT);
     int   CallPthreadAttrGetdetachstate(ADDRINT, ADDRINT);
     int   CallPthreadAttrGetstack(ADDRINT, ADDRINT, ADDRINT);
@@ -123,7 +140,7 @@ namespace PinPthread
     VOID  DoContextSwitch(CONTEXT*);
     VOID  WarnNYI(const string*, ADDRINT ip);
     VOID  PrintRtnName(const string*);
-    VOID  DummyFunc(void*) {}
+    //VOID  DummyFunc(void*) {}  //Dong: comment it out to avoid multiple definition error
     int   CallPthreadBarrierInit(ADDRINT, ADDRINT, ADDRINT);
     int   CallPthreadBarrierDestroy(ADDRINT);
     int   CallPthreadBarrierWait(CONTEXT*, ADDRINT);

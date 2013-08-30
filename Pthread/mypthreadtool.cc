@@ -1,4 +1,19 @@
 #include "mypthreadtool.h"
+#include "PTS.h"
+
+#ifdef DONG_TRIGGER_SIM
+#include "triggersim_api.h"
+#endif
+
+#ifdef APP_HPL
+#include <sys/file.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+#ifdef MALLOC_INTERCEPT
+#include "intercept_malloc.h"
+#endif
 
 using namespace PinPthread;
 
@@ -12,6 +27,14 @@ int main(int argc, char** argv)
     IMG_AddInstrumentFunction(FlagImg, 0);
     RTN_AddInstrumentFunction(FlagRtn, 0);
     TRACE_AddInstrumentFunction(FlagTrace, 0);
+    #ifdef MALLOC_INTERCEPT 
+    IMG_AddInstrumentFunction(FlagHeap, 0);
+    #endif
+
+    #ifdef DONG_TRIGGER_SIM
+    IMG_AddInstrumentFunction(TriggerSim, 0);
+    #endif
+
     PIN_AddFiniFunction(Fini, 0);
     PIN_StartProgram();
     return 0;
@@ -25,10 +48,33 @@ namespace PinPthread
 /* ------------------------------------------------------------------ */
 /* Initalization & Clean Up                                           */
 /* ------------------------------------------------------------------ */
+PthreadSim* pthreadsim;
+#ifdef MALLOC_INTERCEPT
+int exp_heap_size;   //expected heap size
+#endif
+#ifdef DONG_TRIGGER_SIM 
+bool start_sim_flag = false;
+#endif
 
 VOID Init(uint32_t argc, char** argv) 
 {
     pthreadsim = new PthreadSim(argc, argv);
+
+    #ifdef MALLOC_INTERCEPT
+    char *char_heap_mem_size=NULL;
+
+    char_heap_mem_size = getenv("HEAP_MEM_SIZE");
+    if(char_heap_mem_size == NULL)
+    {
+      cout << "[Pthread]: HEAP_MEM_SIZE is not set. exp_heap_size is set as 1MByte by default" << endl;
+      exp_heap_size = 1024*1024;  //1MByte by default
+    }
+    else
+    {
+      exp_heap_size = atol(char_heap_mem_size);
+      cout << "[Pthread]: HEAP_MEM_SIZE is set as " << exp_heap_size << endl;
+    } 
+    #endif   //MALLOC_INTERCEPT
 }
 
 VOID Fini(INT32 code, VOID* v) 
@@ -63,16 +109,22 @@ VOID ProcessMemIns(
     pthreadsim->first_instrs++;
     pthreadsim->initiate(context);
   }
-  pthreadsim->process_ins(
-    context,
-    ip,
-    raddr, raddr2, rlen,
-    waddr,         wlen,
-    isbranch,
-    isbranchtaken,
-    category,
-    rr0, rr1, rr2, rr3,
-    rw0, rw1, rw2, rw3);
+
+  #ifdef DONG_TRIGGER_SIM
+  if(start_sim_flag)
+  #endif
+  {
+    pthreadsim->process_ins(
+     context,
+     ip,
+     raddr, raddr2, rlen,
+     waddr,         wlen,
+     isbranch,
+     isbranchtaken,
+     category,
+     rr0, rr1, rr2, rr3,
+     rw0, rw1, rw2, rw3);
+  }
 }
 
 
@@ -85,6 +137,8 @@ VOID NewPthreadSim(CONTEXT* ctxt)
 /* ------------------------------------------------------------------ */
 /* Instrumentation Routines                                           */
 /* ------------------------------------------------------------------ */
+
+VOID  DummyFunc(void*) {}  //dong moved this from the header file to here
 
 VOID FlagImg(IMG img, VOID* v) 
 {
@@ -880,6 +934,174 @@ VOID FlagTrace(TRACE trace, VOID* v)
   }
 }
 
+#ifdef DONG_TRIGGER_SIM
+VOID TriggerSim(IMG img, void *v)
+{
+        RTN startsimRtn = RTN_FindByName(img, "dong_start_sim");
+        if (RTN_Valid(startsimRtn))
+        {
+                RTN_Open(startsimRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(startsimRtn, IPOINT_BEFORE, (AFUNPTR)startsim,
+                                IARG_END);
+                RTN_Close(startsimRtn);
+        }
+
+        RTN endsimRtn = RTN_FindByName(img, "dong_end_sim");
+        if (RTN_Valid(endsimRtn))
+        {
+                RTN_Open(endsimRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(endsimRtn, IPOINT_BEFORE, (AFUNPTR)endsim,
+                                IARG_END);
+                RTN_Close(endsimRtn);
+        }
+}
+#endif
+
+#ifdef MALLOC_INTERCEPT
+
+#define MALLOC "malloc"
+#define MALLOC_AFTER "malloc"
+#define REALLOC "realloc"
+#define REALLOC_AFTER "realloc"
+#define CALLOC "calloc"
+#define CALLOC_AFTER "calloc"
+#define FREE "free"
+#define HPLMALLOC "dong_malloc_intercept_assist_for_HPL" //specific assist for HPL
+
+VOID FlagHeap(IMG img, void *v)
+{
+        RTN begmallocinterRtn = RTN_FindByName(img, "beg_malloc_intercept_for_pin");
+        if (RTN_Valid(begmallocinterRtn))
+        {
+                RTN_Open(begmallocinterRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(begmallocinterRtn, IPOINT_BEFORE, (AFUNPTR)InterceptMalloc_beg,
+                                IARG_END);
+                RTN_Close(begmallocinterRtn);
+        }
+
+        RTN endmallocinterRtn = RTN_FindByName(img, "end_malloc_intercept_for_pin");
+        if (RTN_Valid(endmallocinterRtn))
+        {
+                RTN_Open(endmallocinterRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(endmallocinterRtn, IPOINT_BEFORE, (AFUNPTR)InterceptMalloc_end,
+                                IARG_END);
+                RTN_Close(endmallocinterRtn);
+        }
+
+        RTN mallocRtn = RTN_FindByName(img, MALLOC);
+        if (RTN_Valid(mallocRtn))
+        {
+                RTN_Open(mallocRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(mallocRtn, IPOINT_BEFORE, (AFUNPTR)MallocBefore,
+                                IARG_ADDRINT, MALLOC,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(mallocRtn);
+        }
+        RTN mallocaftRtn = RTN_FindByName(img, MALLOC_AFTER);
+        if (RTN_Valid(mallocaftRtn))
+        {
+                RTN_Open(mallocaftRtn);
+                RTN_InsertCall(mallocaftRtn, IPOINT_AFTER, (AFUNPTR)MallocAfter,
+                                IARG_ADDRINT, MALLOC_AFTER,
+                                IARG_FUNCRET_EXITPOINT_VALUE,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(mallocaftRtn);
+        }
+
+
+        RTN reallocRtn = RTN_FindByName(img, REALLOC);
+        if (RTN_Valid(reallocRtn))
+        {
+                RTN_Open(reallocRtn);
+
+                // Instrument malloc() to print the input argument value and the return value.
+                RTN_InsertCall(reallocRtn, IPOINT_BEFORE, (AFUNPTR)ReallocBefore,
+                                IARG_ADDRINT, REALLOC,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(reallocRtn);
+        }
+
+        RTN reallocaftRtn = RTN_FindByName(img, REALLOC_AFTER);
+        if (RTN_Valid(reallocaftRtn))
+        {
+                RTN_Open(reallocaftRtn);
+                RTN_InsertCall(reallocaftRtn, IPOINT_AFTER, (AFUNPTR)MallocAfter,
+                                IARG_ADDRINT, REALLOC_AFTER,
+                                IARG_FUNCRET_EXITPOINT_VALUE,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(reallocaftRtn);
+        }
+
+        RTN callocRtn = RTN_FindByName(img, CALLOC);
+        if (RTN_Valid(callocRtn))
+        {
+                RTN_Open(callocRtn);
+                RTN_InsertCall(callocRtn, IPOINT_BEFORE, (AFUNPTR)CallocBefore,
+                                IARG_ADDRINT, CALLOC,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(callocRtn);
+        }
+
+        RTN callocaftRtn = RTN_FindByName(img, CALLOC_AFTER);
+        if (RTN_Valid(callocaftRtn))
+        {
+                RTN_Open(callocaftRtn);
+                RTN_InsertCall(callocaftRtn, IPOINT_AFTER, (AFUNPTR)MallocAfter,
+                                IARG_ADDRINT, CALLOC_AFTER,
+                                IARG_FUNCRET_EXITPOINT_VALUE,
+                                IARG_RETURN_IP,
+                                IARG_END);
+                RTN_Close(callocaftRtn);
+        }
+
+        #ifdef APP_HPL
+        RTN HPL_malloc_assistRtn = RTN_FindByName(img, HPLMALLOC);
+        if (RTN_Valid(HPL_malloc_assistRtn))
+        {
+                RTN_Open(HPL_malloc_assistRtn);
+                RTN_InsertCall(HPL_malloc_assistRtn, IPOINT_BEFORE, (AFUNPTR)HPL_malloc_assist,
+                                //IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                                IARG_END);
+                RTN_Close(HPL_malloc_assistRtn);
+        }
+        #endif
+
+        RTN freeRtn = RTN_FindByName(img, FREE);
+        if (RTN_Valid(freeRtn))
+        {
+                RTN_Open(freeRtn);
+                // Instrument free() to print the input argument value.
+                RTN_InsertCall(freeRtn, IPOINT_BEFORE, (AFUNPTR)FreeBefore,
+                                IARG_ADDRINT, FREE,
+                                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                                IARG_END);
+                RTN_Close(freeRtn);
+        }
+}
+#endif    //MALLOC_INTERCEPT
+ 
 
 /* ------------------------------------------------------------------ */
 /* Pthread Hooks                                                      */

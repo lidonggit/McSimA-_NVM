@@ -58,7 +58,8 @@ else
   OPT = -O3 -g
 endif
 
-CXXFLAGS_COMMON = -Wno-unknown-pragmas $(DBG) $(OPT) 
+CXXFLAGS_COMMON = -Wno-unknown-pragmas $(DBG) $(OPT)
+
 #CXX = g++ -m32
 #CC  = gcc -m32
 CXX = g++
@@ -85,6 +86,23 @@ ifneq ($(EXTENGINELIB),)
 else
   SRCS = $(SRCS_COMMON) PthreadSim.cc PthreadScheduler.cc
   CXXFLAGS = $(CXXFLAGS_COMMON)
+endif
+
+ifeq ($(TAG),dbg)
+CXXFLAGS+=-DDONG_DEBUG
+endif
+
+ifeq ($(NVM_EXT), Y)
+CXXFLAGS+=-DNVM_EXT
+endif
+
+ifeq ($(MALLOC_INTERCEPT), Y)
+CXXFLAGS+=-DMALLOC_INTERCEPT
+SRCS+=intercept_malloc.cc
+endif
+
+ifeq ($(DONG_TRIGGER_SIM), Y)
+CXXFLAGS+=-DDONG_TRIGGER_SIM
 endif
 
 OBJS = $(patsubst %.cc,obj_$(TAG)/%.o,$(SRCS))

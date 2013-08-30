@@ -67,6 +67,7 @@ PthreadScheduler::PthreadScheduler(uint32_t port_num_):
   page_sz_log2       = pts->get_param_uint64("pts.mc.page_sz_base_bit", 12);
   ignore_skip_instrs = pts->get_param_bool("pts.ignore_skip_instrs", false);
   repeat_playing     = pts->get_param_bool("pts.repeat_playing", false);
+  
   num_page_allocated = 0;
 }
 
