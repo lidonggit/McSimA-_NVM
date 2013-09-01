@@ -1,0 +1,46 @@
+src/grid/HPL_grid_exit.c:   if( GRID->all_comm != MPI_COMM_NULL )
+src/grid/HPL_grid_exit.c:      mpierr = MPI_Comm_free( &(GRID->row_comm) );
+src/grid/HPL_grid_exit.c:      mpierr = MPI_Comm_free( &(GRID->col_comm) );
+src/grid/HPL_grid_exit.c:      mpierr = MPI_Comm_free( &(GRID->all_comm) );
+src/grid/HPL_grid_exit.c:   GRID->order   = HPL_COLUMN_MAJOR;
+src/grid/HPL_grid_exit.c:   GRID->iam     = GRID->myrow    = GRID->mycol     = -1;
+src/grid/HPL_grid_exit.c:   GRID->nprow   = GRID->npcol    = GRID->nprocs    = -1;
+src/grid/HPL_grid_exit.c:   GRID->row_ip2 = GRID->row_hdim = GRID->row_ip2m1 = GRID->row_mask = -1;
+src/grid/HPL_grid_exit.c:   GRID->col_ip2 = GRID->col_hdim = GRID->col_ip2m1 = GRID->col_mask = -1;
+src/grid/HPL_grid_info.c:   *NPROW = GRID->nprow; *NPCOL = GRID->npcol;
+src/grid/HPL_grid_info.c:   *MYROW = GRID->myrow; *MYCOL = GRID->mycol;
+src/grid/HPL_grid_init.c:      GRID->order = HPL_ROW_MAJOR;
+src/grid/HPL_grid_init.c:      GRID->order = HPL_COLUMN_MAJOR;
+src/grid/HPL_grid_init.c:   GRID->iam   = rank;  GRID->myrow = myrow; GRID->mycol  = mycol;
+src/grid/HPL_grid_init.c:   GRID->nprow = NPROW; GRID->npcol = NPCOL; GRID->nprocs = nprocs;
+src/grid/HPL_grid_init.c:   GRID->row_ip2 = ip2; GRID->row_hdim = hdim; 
+src/grid/HPL_grid_init.c:   GRID->row_ip2m1 = ip2; GRID->row_mask = mask; 
+src/grid/HPL_grid_init.c:   GRID->col_ip2 = ip2; GRID->col_hdim = hdim; 
+src/grid/HPL_grid_init.c:   GRID->col_ip2m1 = ip2; GRID->col_mask = mask; 
+src/grid/HPL_grid_init.c:                          rank, &(GRID->all_comm) );
+src/grid/HPL_grid_init.c:   if( GRID->all_comm == MPI_COMM_NULL ) return( ierr );
+src/grid/HPL_grid_init.c:   ierr = MPI_Comm_split( GRID->all_comm, myrow, mycol, &(GRID->row_comm) );
+src/grid/HPL_grid_init.c:   ierr = MPI_Comm_split( GRID->all_comm, mycol, myrow, &(GRID->col_comm) );
+src/grid/HPL_pnum.c:   if( GRID->order == HPL_ROW_MAJOR )
+src/grid/HPL_pnum.c:      return( MYROW * GRID->npcol + MYCOL );
+src/grid/HPL_pnum.c:      return( MYCOL * GRID->nprow + MYROW );
+src/panel/HPL_pdpanel_init.c:   myrow = GRID->myrow; mycol = GRID->mycol;
+src/panel/HPL_pdpanel_init.c:   nprow = GRID->nprow; npcol = GRID->npcol; nb = A->nb;
+src/pauxil/HPL_pdlange.c:   Rcomm = GRID->row_comm; Ccomm = GRID->col_comm;
+src/pauxil/HPL_pdlange.c:   Acomm = GRID->all_comm;
+src/pauxil/HPL_pdlaprnt.c:   Acomm = GRID->all_comm; 
+src/pgesv/HPL_pdgesv.c:   if( ( ALGO->depth == 0 ) || ( GRID->npcol == 1 ) )
+src/pgesv/HPL_pdgesvK1.c:   mycol = GRID->mycol; npcol        = GRID->npcol;
+src/pgesv/HPL_pdgesvK2.c:   mycol = GRID->mycol; npcol        = GRID->npcol;
+src/pgesv/HPL_pdtrsv.c:   Rcomm = GRID->row_comm; Rmsgid = MSGID_BEGIN_PTRSV;
+src/pgesv/HPL_pdtrsv.c:   Ccomm = GRID->col_comm; Cmsgid = MSGID_BEGIN_PTRSV + 1;
+testing/pmatgen/HPL_pdmatgen.c:          //MPI_Barrier(GRID->row_comm);
+testing/pmatgen/HPL_pdmatgen.c:                      //MPI_Barrier(GRID->col_comm);
+testing/ptest/HPL_pdtest.c:                          GRID->all_comm );
+testing/ptest/HPL_pdtest.c:   HPL_ptimer_boot(); (void) HPL_barrier( GRID->all_comm );
+testing/ptest/HPL_pdtest.c:   HPL_ptimer_combine( GRID->all_comm, HPL_AMAX_PTIME, HPL_WALL_PTIME,
+testing/ptest/HPL_pdtest.c:             ( GRID->order == HPL_ROW_MAJOR ? 'R' : 'C' ),
+testing/ptest/HPL_pdtest.c:   HPL_ptimer_combine( GRID->all_comm, HPL_AMAX_PTIME, HPL_WALL_PTIME,
+testing/ptest/HPL_pdtest.c:                             GRID->col_comm );
+testing/ptest/HPL_pdtest.c:                          GRID->row_comm );
+testing/ptest/HPL_pdtest.c:                         GRID->row_comm );
