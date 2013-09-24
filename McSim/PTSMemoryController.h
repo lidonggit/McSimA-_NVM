@@ -273,6 +273,9 @@ namespace PinPthread
       uint32_t num_hthreads;
       int32_t * num_req_from_a_th;
 
+      // get_*_num are based on paper 
+      // A permutation-based page interleaving scheme to reduce row-buffer conflicts and exploit data locality
+      // Zhang etc.
       inline uint32_t get_rank_num(uint64_t addr) { return ((addr >> rank_interleave_base_bit) ^ (addr >> interleave_xor_base_bit)) % num_ranks_per_mc; }
       inline uint32_t get_bank_num(uint64_t addr) {
         uint32_t num_banks_per_rank_curr = (addr >> 63 != 0 && reciprocal_of_agile_row_portion == 0 ? num_banks_with_agile_row : num_banks_per_rank); 
